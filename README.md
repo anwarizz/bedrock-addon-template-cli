@@ -27,7 +27,7 @@ If you ever lose access to your com.mojang folder or move it somewhere else, jus
 You can change the com.mojang path there.
 
 
-**Additions**
+**Additional Commands**
 
 - `cadon <project_name>` - minimal setup  
   Creates the basic RP and BP folders you need to get started.
@@ -41,3 +41,7 @@ You can change the com.mojang path there.
   The system will ask you to enter a display name (e.g. `baboon`) and an identifier (e.g. `myaddon:baboon`).  
   It will automatically add all the files needed to create an entity to both the RP and BP of your project.  
   This will create a basic entity that doesn't move.
+
+- `cadon item` - Similar to `cadon entity`, this command will automatically add all the files needed to create an item to both the RP and BP of your project.  
+  The system will ask you to enter a display name (e.g. `Cool Ore`) and an identifier (e.g. `myaddon:cool_ore`).  
+  This will create a basic item with the required files and configuration.

@@ -215,6 +215,168 @@ if ($Command -eq "entity") {
     exit
 }
 
+# ---- Subcommand: cadon item ----
+if ($Command -eq "item") {
+    $currentDir = (Get-Location).Path
+    $manifestPath = Join-Path $currentDir "manifest.json"
+
+    if (-not (Test-Path $manifestPath)) {
+        Write-Host "No manifest.json found in the current directory." -ForegroundColor Red
+        Write-Host "Run 'cadon item' from inside your project's RP or BP folder." -ForegroundColor Yellow
+        exit
+    }
+
+    $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+    $packType = $null
+    foreach ($module in $manifest.modules) {
+        if ($module.type -eq "resources") { $packType = "RP" }
+        if ($module.type -eq "data" -or $module.type -eq "script") { $packType = "BP" }
+    }
+
+    if ($null -eq $packType) {
+        Write-Host "Could not determine pack type from manifest.json." -ForegroundColor Red
+        exit
+    }
+
+    $folderName = Split-Path $currentDir -Leaf
+
+    if ($packType -eq "RP") {
+        if ($folderName -notmatch "^(.+) RP$") {
+            Write-Host "Could not determine project name from folder: $folderName" -ForegroundColor Red
+            exit
+        }
+    } else {
+        if ($folderName -notmatch "^(.+) BP$") {
+            Write-Host "Could not determine project name from folder: $folderName" -ForegroundColor Red
+            exit
+        }
+    }
+    $baseName = $Matches[1]
+
+    $rpPath = Join-Path $comMojang "development_resource_packs\$baseName RP"
+    $bpPath = Join-Path $comMojang "development_behavior_packs\$baseName BP"
+
+    if (-not (Test-Path $rpPath) -or -not (Test-Path $bpPath)) {
+        Write-Host "Could not locate both RP and BP folders for project '$baseName'." -ForegroundColor Red
+        exit
+    }
+
+    Write-Host "Project detected: $baseName" -ForegroundColor Green
+
+    $displayName = Read-Host "Enter display name (e.g. Cool Ore)"
+    if ([string]::IsNullOrWhiteSpace($displayName)) {
+        Write-Host "Display name cannot be empty." -ForegroundColor Red
+        exit
+    }
+
+    $identifier = Read-Host "Enter identifier (e.g. myaddon:cool_ore)"
+    if ($identifier -notmatch "^[a-z0-9_]+:[a-z0-9_]+$") {
+        Write-Host "Identifier must be in the format namespace:name (lowercase letters, numbers, underscores only)." -ForegroundColor Red
+        exit
+    }
+
+    $itemShortName = $identifier.Split(":")[1]
+
+    $assetsDir = Join-Path $templateRoot "assets\items"
+    if (-not (Test-Path $assetsDir)) {
+        Write-Host "Assets folder not found: $assetsDir" -ForegroundColor Red
+        exit
+    }
+
+    function Replace-ItemPlaceholders($text) {
+        $text = $text -replace '\{\{IDENTIFIER\}\}', $identifier
+        $text = $text -replace '\{\{DISPLAY_NAME\}\}', $displayName
+        $text = $text -replace '\{\{ITEM_SHORT_NAME\}\}', $itemShortName
+        return $text
+    }
+
+    Write-Host "Creating item files..." -ForegroundColor Cyan
+
+    # ---- cadon.item.json -> BP/items/<name>.json ----
+    $bpItemsDir = Join-Path $bpPath "items"
+    New-Item -ItemType Directory -Force -Path $bpItemsDir | Out-Null
+    $itemJsonContent = Get-Content -Path (Join-Path $assetsDir "cadon.item.json") -Raw
+    $itemJsonContent = Replace-ItemPlaceholders $itemJsonContent
+    Set-Content -Path (Join-Path $bpItemsDir "$itemShortName.json") -Value $itemJsonContent -NoNewline
+
+    # ---- cadon.png -> RP/textures/items/<name>.png ----
+    $rpItemTexturesDir = Join-Path $rpPath "textures\items"
+    New-Item -ItemType Directory -Force -Path $rpItemTexturesDir | Out-Null
+    Copy-Item -Path (Join-Path $assetsDir "cadon.png") -Destination (Join-Path $rpItemTexturesDir "$itemShortName.png")
+
+    # ---- en_US.lang: create if missing, merge (no overwrite) if it exists ----
+    $rpTextsDir = Join-Path $rpPath "texts"
+    New-Item -ItemType Directory -Force -Path $rpTextsDir | Out-Null
+    $destLang = Join-Path $rpTextsDir "en_US.lang"
+
+    $sourceLangContent = Get-Content -Path (Join-Path $assetsDir "en_US.lang") -Raw
+    $sourceLangContent = Replace-ItemPlaceholders $sourceLangContent
+    $newLines = $sourceLangContent -split "`r?`n" | Where-Object { $_.Trim() -ne "" }
+
+    if (-not (Test-Path $destLang)) {
+        Set-Content -Path $destLang -Value ($newLines -join "`r`n")
+    } else {
+        $existingLines = Get-Content -Path $destLang
+        $existingKeys = $existingLines | ForEach-Object {
+            if ($_ -match "^([^=]+)=") { $Matches[1] }
+        }
+        $linesToAdd = @()
+        foreach ($line in $newLines) {
+            if ($line -match "^([^=]+)=") {
+                if ($existingKeys -notcontains $Matches[1]) {
+                    $linesToAdd += $line
+                }
+            }
+        }
+        if ($linesToAdd.Count -gt 0) {
+            Add-Content -Path $destLang -Value $linesToAdd
+        }
+    }
+
+    # ---- item_texture.json: merge into texture_data, no overwrite of existing entries ----
+    $rpTexturesRootDir = Join-Path $rpPath "textures"
+    New-Item -ItemType Directory -Force -Path $rpTexturesRootDir | Out-Null
+    $destTexture = Join-Path $rpTexturesRootDir "item_texture.json"
+    $sourceTextureContent = Get-Content -Path (Join-Path $assetsDir "item_texture.json") -Raw
+    $sourceTextureContent = Replace-ItemPlaceholders $sourceTextureContent
+    $sourceTextureObj = $sourceTextureContent | ConvertFrom-Json
+
+    if (-not (Test-Path $destTexture)) {
+        Set-Content -Path $destTexture -Value $sourceTextureContent
+    } else {
+        $existingTextureObj = Get-Content -Path $destTexture -Raw | ConvertFrom-Json
+
+        $existingDataHash = @{}
+        $existingTextureObj.texture_data.PSObject.Properties | ForEach-Object {
+            $existingDataHash[$_.Name] = $_.Value
+        }
+
+        $sourceTextureObj.texture_data.PSObject.Properties | ForEach-Object {
+            if (-not $existingDataHash.ContainsKey($_.Name)) {
+                $existingDataHash[$_.Name] = $_.Value
+            }
+        }
+
+        $mergedObj = @{
+            resource_pack_name = $existingTextureObj.resource_pack_name
+            texture_name = $existingTextureObj.texture_name
+            texture_data = $existingDataHash
+        }
+
+        $mergedJson = $mergedObj | ConvertTo-Json -Depth 10
+        Set-Content -Path $destTexture -Value $mergedJson
+    }
+
+    Write-Host ""
+    Write-Host "Item '$displayName' ($identifier) added to project '$baseName'." -ForegroundColor Green
+    Write-Host "  $bpItemsDir\$itemShortName.json"
+    Write-Host "  $rpItemTexturesDir\$itemShortName.png"
+    Write-Host "  $destLang (merged)"
+    Write-Host "  $destTexture (merged)"
+
+    exit
+}
+
 # ---- Default: create a new project ----
 $templateRP = Join-Path $templateRoot "RP"
 $templateBP = Join-Path $templateRoot "BP"
