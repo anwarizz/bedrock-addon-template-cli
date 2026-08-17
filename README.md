@@ -27,12 +27,17 @@ If you ever lose access to your com.mojang folder or move it somewhere else, jus
 You can change the com.mojang path there.
 
 
-**Additions**  
+**Additions**
 
-`cadon <project_name>` - minimal setup
-Creates the basic RP and BP folders you need to get started.
+- `cadon <project_name>` - minimal setup  
+  Creates the basic RP and BP folders you need to get started.
 
-`cadon <project_name> *` - full setup
-Creates the RP and BP folders with all the usual folders needed for an addon project.
+- `cadon <project_name> *` - full setup  
+  Creates the RP and BP folders with all the usual folders needed for an addon project.
 
-if you use Visual Studio Code, `cadon code code` or `cadon code <path_to_vscode>` - This configures the system to automatically open Visual Studio Code after you create a project, with the workspace for your new project already set up.
+- if you use Visual Studio Code, `cadon code code` or `cadon code <path_to_vscode>` - This configures the system to automatically open Visual Studio Code after you create a project, with the workspace for your new project already set up.
+
+- `cadon entity` - This command must be run from the root folder of a valid addon project, inside an RP or BP folder that contains a valid `manifest.json`  
+  The system will ask you to enter a display name (e.g. `baboon`) and an identifier (e.g. `myaddon:baboon`).  
+  It will automatically add all the files needed to create an entity to both the RP and BP of your project.  
+  This will create a basic entity that doesn't move.

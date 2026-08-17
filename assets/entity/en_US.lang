@@ -1,2 +1,2 @@
-entity.cd:cadon.name=cadon
-item.spawn_egg.entity.cd:cadon.name=Spawn cadon
+entity.{{IDENTIFIER}}.name={{DISPLAY_NAME}}
+item.spawn_egg.entity.{{IDENTIFIER}}.name=Spawn {{DISPLAY_NAME}}
