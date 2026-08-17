@@ -1,0 +1,22 @@
+{
+	"format_version": "1.10.0",
+	"minecraft:client_entity": {
+		"description": {
+			"identifier": "cd:cadon",
+			"materials": {
+				"default": "entity_alphatest"
+			},
+			"textures": {
+				"default": "textures/entity/cadon"
+			},
+			"geometry": {
+				"default": "geometry.cadon"
+			},
+			"render_controllers": ["controller.render.default"],
+			"spawn_egg": {
+				"base_color": "#db2b62",
+				"overlay_color": "#faa35f"
+			}
+		}
+	}
+}

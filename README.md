@@ -25,3 +25,14 @@ The manifest.json files will also be copied into both folders, and the required 
 If you ever lose access to your com.mojang folder or move it somewhere else, just go to the folder where this system is installed and find config.json.
 
 You can change the com.mojang path there.
+
+
+**Additions**  
+
+`cadon <project_name>` - minimal setup
+Creates the basic RP and BP folders you need to get started.
+
+`cadon <project_name> *` - full setup
+Creates the RP and BP folders with all the usual folders needed for an addon project.
+
+if you use Visual Studio Code, `cadon code code` or `cadon code <path_to_vscode>` - This configures the system to automatically open Visual Studio Code after you create a project, with the workspace for your new project already set up.
