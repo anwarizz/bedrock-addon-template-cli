@@ -45,3 +45,14 @@ You can change the com.mojang path there.
 - `cadon item` - Similar to `cadon entity`, this command will automatically add all the files needed to create an item to both the RP and BP of your project.  
   The system will ask you to enter a display name (e.g. `Cool Ore`) and an identifier (e.g. `myaddon:cool_ore`).  
   This will create a basic item with the required files and configuration.
+
+## Clone Project from CurseForge
+
+For me, one of the annoying things when updating an old project is getting everything ready again. I didn't know the fastest way to open an old project, so I usually had to create a new workspace and drag every folder I needed into it.
+
+To make things a little easier, there's a command that can download a project We've already uploaded to CurseForge, automatically extract it into the RP and BP folders inside `com.mojang`, and automatically open the workspace in Visual Studio Code.
+
+- `cadon apikey <apikey>` - Get a free API key from `console.curseforge.com` and enter it here.
+
+- `cadon projectid <projectid> <fileid>` - Clone a project from CurseForge using its project ID and file ID.  
+  You can find the **project ID** on your project page, and the **file ID** in the **Files** section.

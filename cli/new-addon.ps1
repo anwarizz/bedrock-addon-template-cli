@@ -3,7 +3,10 @@ param(
     [string]$Command,
 
     [Parameter(Position=1)]
-    [string]$Extra
+    [string]$Extra,
+
+    [Parameter(Position=2)]
+    [string]$Extra2
 )
 
 $scriptDir = $PSScriptRoot
@@ -373,6 +376,160 @@ if ($Command -eq "item") {
     Write-Host "  $rpItemTexturesDir\$itemShortName.png"
     Write-Host "  $destLang (merged)"
     Write-Host "  $destTexture (merged)"
+
+    exit
+}
+
+if ($Command -eq "apikey") {
+    if ([string]::IsNullOrWhiteSpace($Extra)) {
+        Write-Host "Usage: cadon apikey <your-cfcore-api-key>" -ForegroundColor Red
+        Write-Host "Get a free key at: https://console.curseforge.com" -ForegroundColor Yellow
+        exit
+    }
+
+    $config = Load-Config
+    if ($null -eq $config) {
+        Write-Host "config.json not found. Run install.bat first on this device." -ForegroundColor Red
+        exit
+    }
+
+    $config | Add-Member -NotePropertyName "curseforgeApiKey" -NotePropertyValue $Extra -Force
+    Save-Config $config
+
+    Write-Host "CurseForge API key saved." -ForegroundColor Green
+    exit
+}
+
+if ($Command -eq "projectid") {
+    $modId = $Extra
+    $fileId = $Extra2  
+
+    if ([string]::IsNullOrWhiteSpace($modId) -or [string]::IsNullOrWhiteSpace($fileId)) {
+        Write-Host "Usage: cadon projectid <modId> <fileId>" -ForegroundColor Red
+        Write-Host "Find these on the CurseForge project page, under 'About Project'." -ForegroundColor Yellow
+        exit
+    }
+
+    $cfApiKey = $config.curseforgeApiKey
+    if ([string]::IsNullOrWhiteSpace($cfApiKey)) {
+        Write-Host "No CurseForge API key configured." -ForegroundColor Red
+        Write-Host "Run: cadon apikey <your-key>" -ForegroundColor Yellow
+        exit
+    }
+
+    $cfHeaders = @{
+        "Accept" = "application/json"
+        "x-api-key" = $cfApiKey
+    }
+
+    Write-Host "Requesting direct download URL for mod $modId, file $fileId..." -ForegroundColor Cyan
+
+    try {
+        $downloadUrlResponse = Invoke-RestMethod -Uri "https://api.curseforge.com/v1/mods/$modId/files/$fileId/download-url" -Headers $cfHeaders -ErrorAction Stop
+    } catch {
+        Write-Host "Failed to get download URL from CurseForge API." -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
+        exit
+    }
+
+    $directDownloadUrl = $downloadUrlResponse.data
+
+    if ([string]::IsNullOrWhiteSpace($directDownloadUrl)) {
+        Write-Host "CurseForge API did not return a valid download URL." -ForegroundColor Red
+        exit
+    }
+
+    
+    Write-Host "Downloading addon..." -ForegroundColor Cyan
+
+    $tempDir = Join-Path $env:TEMP "cadon_update_$(Get-Random)"
+    New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+    $downloadedFile = Join-Path $tempDir "addon.mcaddon"
+
+    try {
+        Invoke-WebRequest -Uri $directDownloadUrl -OutFile $downloadedFile -ErrorAction Stop
+    } catch {
+        Write-Host "Failed to download the file from CDN." -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
+        Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
+        exit
+    }
+
+    $zipFile = Join-Path $tempDir "addon.zip"
+    Copy-Item -Path $downloadedFile -Destination $zipFile
+
+    $extractDir = Join-Path $tempDir "extracted"
+    Expand-Archive -Path $zipFile -DestinationPath $extractDir -Force
+
+    $manifestFiles = Get-ChildItem -Path $extractDir -Filter "manifest.json" -Recurse
+
+    if ($manifestFiles.Count -eq 0) {
+        Write-Host "No manifest.json found in the downloaded file." -ForegroundColor Red
+        Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
+        exit
+    }
+
+    $foundRP = $null
+    $foundBP = $null
+
+    foreach ($manifestFile in $manifestFiles) {
+        $manifest = Get-Content $manifestFile.FullName -Raw | ConvertFrom-Json
+        $packFolder = $manifestFile.Directory.FullName
+
+        foreach ($module in $manifest.modules) {
+            if ($module.type -eq "resources") { $foundRP = $packFolder }
+            if ($module.type -eq "data" -or $module.type -eq "script") { $foundBP = $packFolder }
+        }
+    }
+
+    if ($null -eq $foundRP -or $null -eq $foundBP) {
+        Write-Host "Could not find both a Resource Pack and a Behavior Pack inside the downloaded addon." -ForegroundColor Red
+        Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
+        exit
+    }
+
+    $rpManifest = Get-Content (Join-Path $foundRP "manifest.json") -Raw | ConvertFrom-Json
+    $projectDisplayName = $rpManifest.header.name -replace " RP$", ""
+    $safeName = $projectDisplayName -replace '[\\/:*?"<>|]', ''
+
+    $destRP = Join-Path $comMojang "development_resource_packs\$safeName RP"
+    $destBP = Join-Path $comMojang "development_behavior_packs\$safeName BP"
+
+    Write-Host "Updating project: $projectDisplayName" -ForegroundColor Green
+
+    if (Test-Path $destRP) { Remove-Item -Recurse -Force $destRP }
+    if (Test-Path $destBP) { Remove-Item -Recurse -Force $destBP }
+
+    Copy-Item -Path $foundRP -Destination $destRP -Recurse
+    Copy-Item -Path $foundBP -Destination $destBP -Recurse
+
+    Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
+
+    $projectsDir = Join-Path $templateRoot "Projects"
+    New-Item -ItemType Directory -Force -Path $projectsDir | Out-Null
+    $workspacePath = Join-Path $projectsDir "$safeName.code-workspace"
+    $workspaceObject = @{
+        folders = @(
+            @{ path = $destRP },
+            @{ path = $destBP }
+        )
+        settings = @{}
+    }
+    Set-Content -Path $workspacePath -Value ($workspaceObject | ConvertTo-Json -Depth 5)
+
+    Write-Host ""
+    Write-Host "Done! Project '$projectDisplayName' has been updated from the published version." -ForegroundColor Green
+    Write-Host "  RP: $destRP"
+    Write-Host "  BP: $destBP"
+
+    if (-not [string]::IsNullOrWhiteSpace($editorCommand)) {
+        Write-Host "Opening workspace in editor..." -ForegroundColor Cyan
+        try {
+            Start-Process -FilePath $editorCommand -ArgumentList "`"$workspacePath`""
+        } catch {
+            Write-Host "Could not launch editor with command: $editorCommand" -ForegroundColor Red
+        }
+    }
 
     exit
 }
