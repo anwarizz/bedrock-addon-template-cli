@@ -534,6 +534,161 @@ if ($Command -eq "projectid") {
     exit
 }
 
+# ---- Subcommand: cadon publish ----
+if ($Command -eq "publish") {
+    $currentDir = (Get-Location).Path
+    $manifestPath = Join-Path $currentDir "manifest.json"
+
+    if (-not (Test-Path $manifestPath)) {
+        Write-Host "No manifest.json found in the current directory." -ForegroundColor Red
+        Write-Host "Run 'cadon publish' from inside your project's RP or BP folder." -ForegroundColor Yellow
+        exit
+    }
+
+    $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+    $packType = $null
+    foreach ($module in $manifest.modules) {
+        if ($module.type -eq "resources") { $packType = "RP" }
+        if ($module.type -eq "data" -or $module.type -eq "script") { $packType = "BP" }
+    }
+
+    if ($null -eq $packType) {
+        Write-Host "Could not determine pack type from manifest.json." -ForegroundColor Red
+        exit
+    }
+
+    $folderName = Split-Path $currentDir -Leaf
+
+    if ($packType -eq "RP") {
+        if ($folderName -notmatch "^(.+) RP$") {
+            Write-Host "Could not determine project name from folder: $folderName" -ForegroundColor Red
+            exit
+        }
+    } else {
+        if ($folderName -notmatch "^(.+) BP$") {
+            Write-Host "Could not determine project name from folder: $folderName" -ForegroundColor Red
+            exit
+        }
+    }
+    $baseName = $Matches[1]
+
+    $rpPath = Join-Path $comMojang "development_resource_packs\$baseName RP"
+    $bpPath = Join-Path $comMojang "development_behavior_packs\$baseName BP"
+
+    if (-not (Test-Path $rpPath) -or -not (Test-Path $bpPath)) {
+        Write-Host "Could not locate both RP and BP folders for project '$baseName'." -ForegroundColor Red
+        exit
+    }
+
+    Write-Host "Project detected: $baseName" -ForegroundColor Green
+
+    # ---- Get or ask for publish output path (saved to config) ----
+    $publishPath = $config.publishPath
+    if ([string]::IsNullOrWhiteSpace($publishPath) -or -not (Test-Path $publishPath)) {
+        $publishPath = Read-Host "Enter the folder where published addons should be saved (e.g. D:\Projects-Publish)"
+        if ([string]::IsNullOrWhiteSpace($publishPath)) {
+            Write-Host "Publish folder cannot be empty." -ForegroundColor Red
+            exit
+        }
+        New-Item -ItemType Directory -Force -Path $publishPath | Out-Null
+
+        $config | Add-Member -NotePropertyName "publishPath" -NotePropertyValue $publishPath -Force
+        Save-Config $config
+        Write-Host "Publish folder saved for future use. You can change it anytime in publishPath inside config.json" -ForegroundColor Green
+    }
+
+    # ---- Ask for version ----
+    $version = Read-Host "Enter version (e.g. 1.0.0)"
+    if ([string]::IsNullOrWhiteSpace($version)) {
+        Write-Host "Version cannot be empty." -ForegroundColor Red
+        exit
+    }
+    $safeVersion = $version -replace '[\\/:*?"<>|]', ''
+
+    $safeBaseName = $baseName -replace '[\\/:*?"<>|]', ''
+    $projectPublishRoot = Join-Path $publishPath "Minecraft - $safeBaseName"
+    $versionFolder = Join-Path $projectPublishRoot $safeVersion
+
+    if (Test-Path $versionFolder) {
+        Write-Host "This version already exists at:" -ForegroundColor Yellow
+        Write-Host "  $versionFolder" -ForegroundColor Yellow
+        $confirm = Read-Host "Overwrite? (y/n)"
+        if ($confirm -ne "y") {
+            Write-Host "Publish canceled." -ForegroundColor Red
+            exit
+        }
+        Remove-Item -Recurse -Force $versionFolder
+    }
+
+    New-Item -ItemType Directory -Force -Path $versionFolder | Out-Null
+
+    Write-Host "Copying RP and BP..." -ForegroundColor Cyan
+    $publishRP = Join-Path $versionFolder "$safeBaseName RP"
+    $publishBP = Join-Path $versionFolder "$safeBaseName BP"
+    Copy-Item -Path $rpPath -Destination $publishRP -Recurse
+    Copy-Item -Path $bpPath -Destination $publishBP -Recurse
+
+    Write-Host "Building .mcaddon..." -ForegroundColor Cyan
+
+    $stagingDir = Join-Path $env:TEMP "cadon_publish_$(Get-Random)"
+    New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
+    Copy-Item -Path $publishRP -Destination (Join-Path $stagingDir "$safeBaseName RP") -Recurse
+    Copy-Item -Path $publishBP -Destination (Join-Path $stagingDir "$safeBaseName BP") -Recurse
+
+    $zipPath = Join-Path $versionFolder "$safeBaseName-$safeVersion.zip"
+    Compress-Archive -Path "$stagingDir\*" -DestinationPath $zipPath -Force
+
+    $mcaddonPath = Join-Path $versionFolder "$safeBaseName-$safeVersion.mcaddon"
+    Rename-Item -Path $zipPath -NewName (Split-Path $mcaddonPath -Leaf)
+
+    Remove-Item -Recurse -Force $stagingDir -ErrorAction SilentlyContinue
+
+    Write-Host ""
+    Write-Host "Done! Project '$baseName' version $version has been published:" -ForegroundColor Green
+    Write-Host "  $versionFolder"
+    Write-Host "    - $safeBaseName RP\"
+    Write-Host "    - $safeBaseName BP\"
+    Write-Host "    - $safeBaseName-$safeVersion.mcaddon"
+
+    exit
+}
+
+# ---- Subcommand: cadon uninstall ----
+if ($Command -eq "uninstall") {
+    $installRoot = Split-Path $scriptDir -Parent
+
+    Write-Host "This will completely remove Cadon:" -ForegroundColor Yellow
+    Write-Host "  $installRoot" -ForegroundColor Yellow
+    Write-Host "And remove it from your PATH." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Note: this only removes the Cadon tool itself." -ForegroundColor DarkGray
+    Write-Host "Projects already created in com.mojang and your Projects folder will NOT be touched." -ForegroundColor DarkGray
+    Write-Host ""
+
+    $confirm = Read-Host "Are you sure you want to uninstall Cadon? (y/n)"
+    if ($confirm -ne "y") {
+        Write-Host "Uninstall canceled." -ForegroundColor Red
+        exit
+    }
+
+    # Remove from PATH first, while we still can
+    $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $newPath = ($currentPath -split ";" | Where-Object { $_ -ne $scriptDir }) -join ";"
+    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+    Write-Host "Removed from PATH." -ForegroundColor Green
+
+    # Spawn a separate process to delete the install folder after this script exits
+    $deleteCommand = "Start-Sleep -Seconds 2; Remove-Item -Recurse -Force '$installRoot'"
+    Start-Process -FilePath "powershell" -ArgumentList "-WindowStyle Hidden -Command `"$deleteCommand`"" -WindowStyle Hidden
+
+    Write-Host ""
+    Write-Host "Cadon has been uninstalled." -ForegroundColor Green
+    Write-Host "The install folder will be removed in a moment." -ForegroundColor DarkGray
+    Write-Host "Close and reopen Command Prompt to complete the removal from PATH." -ForegroundColor Yellow
+
+    exit
+}
+
 # ---- Default: create a new project ----
 $templateRP = Join-Path $templateRoot "RP"
 $templateBP = Join-Path $templateRoot "BP"
