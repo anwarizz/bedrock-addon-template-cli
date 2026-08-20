@@ -13,6 +13,12 @@ That's it
 
 Once it's installed, open CMD / Command Prompt and run:
 
+`cadon help` - Display all the available commands listed below. But if you want to read more about how each command works, feel free to continue reading.
+
+> Some of the available commands are not listed in this README.
+
+**Creating a Project**
+
 ```cadon```
 or
 ```cadon <project_name>```
@@ -57,7 +63,7 @@ To make things a little easier, there's a command that can download a project We
 - `cadon projectid <projectid> <fileid>` - Clone a project from CurseForge using its project ID and file ID.  
   You can find the **project ID** on your project page, and the **file ID** in the **Files** section.
 
-## Compress RP and BP to `.mcaddon` all at once
+## Package the current project's RP and BP into a versioned folder and a `.mcaddon` file.
 
 I usually keep my finished projects in a folder called 'Publish' on my local storage. Inside it, each project has its own folder named after the project, containing the RP, BP, and the .mcaddon file ready to be played.
 

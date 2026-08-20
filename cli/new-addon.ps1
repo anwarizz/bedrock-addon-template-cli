@@ -689,6 +689,178 @@ if ($Command -eq "uninstall") {
     exit
 }
 
+# ---- Subcommand: cadon project list ----
+if ($Command -eq "project" -and $Extra -eq "list") {
+    $rpRoot = Join-Path $comMojang "development_resource_packs"
+    $bpRoot = Join-Path $comMojang "development_behavior_packs"
+
+    $rpFolders = @()
+    if (Test-Path $rpRoot) {
+        $rpFolders = Get-ChildItem -Path $rpRoot -Directory | Where-Object { $_.Name -match "^(.+) RP$" } | ForEach-Object { $Matches[1] }
+    }
+
+    $bpFolders = @()
+    if (Test-Path $bpRoot) {
+        $bpFolders = Get-ChildItem -Path $bpRoot -Directory | Where-Object { $_.Name -match "^(.+) BP$" } | ForEach-Object { $Matches[1] }
+    }
+
+    $allProjectNames = ($rpFolders + $bpFolders) | Select-Object -Unique | Sort-Object
+
+    if ($allProjectNames.Count -eq 0) {
+        Write-Host "No projects found." -ForegroundColor Yellow
+        exit
+    }
+
+    Write-Host ""
+    Write-Host "Projects in com.mojang:" -ForegroundColor Cyan
+    Write-Host ""
+
+    foreach ($name in $allProjectNames) {
+        $hasRP = $rpFolders -contains $name
+        $hasBP = $bpFolders -contains $name
+
+        $status = ""
+        if ($hasRP -and $hasBP) {
+            $status = ""
+        } elseif ($hasRP -and -not $hasBP) {
+            $status = "missing BP"
+        } elseif (-not $hasRP -and $hasBP) {
+            $status = "missing RP"
+        }
+
+        if ($hasRP -and $hasBP) {
+            Write-Host "  - $name" -ForegroundColor White
+        } else {
+            Write-Host "  - $name " -ForegroundColor White -NoNewline
+            Write-Host "($status)" -ForegroundColor Red
+        }
+    }
+
+    Write-Host ""
+    Write-Host "Total: $($allProjectNames.Count) project(s)" -ForegroundColor DarkGray
+
+    exit
+}
+
+# ---- Subcommand: cadon delete <project_name> ----
+if ($Command -eq "delete") {
+    if ([string]::IsNullOrWhiteSpace($Extra)) {
+        Write-Host "Usage: cadon delete <project_name>" -ForegroundColor Red
+        exit
+    }
+
+    $targetName = $Extra
+    $destRP = Join-Path $comMojang "development_resource_packs\$targetName RP"
+    $destBP = Join-Path $comMojang "development_behavior_packs\$targetName BP"
+
+    $rpExists = Test-Path $destRP
+    $bpExists = Test-Path $destBP
+
+    if (-not $rpExists -and -not $bpExists) {
+        Write-Host "No project named '$targetName' was found." -ForegroundColor Red
+        exit
+    }
+
+    Write-Host "This will permanently delete:" -ForegroundColor Yellow
+    if ($rpExists) { Write-Host "  $destRP" -ForegroundColor Yellow }
+    if ($bpExists) { Write-Host "  $destBP" -ForegroundColor Yellow }
+    Write-Host ""
+
+    $confirm = Read-Host "Are you sure? (y/n)"
+    if ($confirm -ne "y") {
+        Write-Host "Delete canceled." -ForegroundColor Red
+        exit
+    }
+
+    if ($rpExists) {
+        Remove-Item -Recurse -Force $destRP
+        Write-Host "Removed RP." -ForegroundColor Green
+    }
+    if ($bpExists) {
+        Remove-Item -Recurse -Force $destBP
+        Write-Host "Removed BP." -ForegroundColor Green
+    }
+
+    $safeName = $targetName -replace '[\\/:*?"<>|]', ''
+    $workspacePath = Join-Path $templateRoot "Projects\$safeName.code-workspace"
+    if (Test-Path $workspacePath) {
+        Remove-Item -Force $workspacePath
+        Write-Host "Removed workspace file." -ForegroundColor Green
+    }
+
+    Write-Host ""
+    Write-Host "Project '$targetName' has been deleted." -ForegroundColor Green
+
+    exit
+}
+
+# ---- Subcommand: cadon help ----
+if ($Command -eq "help") {
+    Write-Host ""
+    Write-Host "=== Cadon - Bedrock Addon Simplistic ===" -ForegroundColor Cyan
+    Write-Host ""
+
+    Write-Host "PROJECT CREATION" -ForegroundColor Yellow
+    Write-Host "  cadon <project_name>" -ForegroundColor White
+    Write-Host "      Create a new project (minimal copy: manifest, scripts, pack_icon only)." -ForegroundColor DarkGray
+    Write-Host "      Example: cadon MyAddon" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  cadon <project_name> *" -ForegroundColor White
+    Write-Host "      Create a new project with the full template (all folders)." -ForegroundColor DarkGray
+    Write-Host "      Example: cadon MyAddon *" -ForegroundColor DarkGray
+    Write-Host ""
+
+    Write-Host "PROJECT MANAGEMENT" -ForegroundColor Yellow
+    Write-Host "  cadon project list" -ForegroundColor White
+    Write-Host "      List all projects currently in com.mojang." -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  cadon delete <project_name>" -ForegroundColor White
+    Write-Host "      Permanently delete a project's RP and BP." -ForegroundColor DarkGray
+    Write-Host "      Example: cadon delete MyAddon" -ForegroundColor DarkGray
+    Write-Host ""
+
+    Write-Host "ADDING CONTENT (run inside a project's RP or BP folder)" -ForegroundColor Yellow
+    Write-Host "  cadon entity" -ForegroundColor White
+    Write-Host "      Add a new entity to the current project. Asks for display name and identifier." -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  cadon item" -ForegroundColor White
+    Write-Host "      Add a new item to the current project. Asks for display name and identifier." -ForegroundColor DarkGray
+    Write-Host ""
+
+    Write-Host "PUBLISHING" -ForegroundColor Yellow
+    Write-Host "  cadon publish" -ForegroundColor White
+    Write-Host "      Package the current project's RP and BP into a versioned folder and a .mcaddon file." -ForegroundColor DarkGray
+    Write-Host "      Run inside a project's RP or BP folder. Asks for version number." -ForegroundColor DarkGray
+    Write-Host ""
+
+    Write-Host "DOWNLOADING FROM CURSEFORGE" -ForegroundColor Yellow
+    Write-Host "  cadon apikey <key>" -ForegroundColor White
+    Write-Host "      Save your CurseForge (CFCore) API key. Get one at console.curseforge.com" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  cadon projectid <modId> <fileId>" -ForegroundColor White
+    Write-Host "      Download and install/update an addon directly from CurseForge." -ForegroundColor DarkGray
+    Write-Host "      Find modId and fileId on the addon's CurseForge project page." -ForegroundColor DarkGray
+    Write-Host "      Example: cadon projectid 123456 8265237" -ForegroundColor DarkGray
+    Write-Host ""
+
+    Write-Host "SETTINGS" -ForegroundColor Yellow
+    Write-Host "  cadon code <editor-command-or-path>" -ForegroundColor White
+    Write-Host "      Set the editor used to open new project workspaces." -ForegroundColor DarkGray
+    Write-Host "      Example: cadon code code" -ForegroundColor DarkGray
+    Write-Host "      (Specific to VS Code)" -ForegroundColor DarkGray
+    Write-Host ""
+
+    Write-Host "MAINTENANCE" -ForegroundColor Yellow
+    Write-Host "  cadon uninstall" -ForegroundColor White
+    Write-Host "      Completely remove Cadon from this device. Projects are not affected." -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  cadon help" -ForegroundColor White
+    Write-Host "      Show this help message." -ForegroundColor DarkGray
+    Write-Host ""
+
+    exit
+}
+
 # ---- Default: create a new project ----
 $templateRP = Join-Path $templateRoot "RP"
 $templateBP = Join-Path $templateRoot "BP"
@@ -712,6 +884,22 @@ $destBP = Join-Path $comMojang "development_behavior_packs\$safeName BP"
 
 if ((Test-Path $destRP) -or (Test-Path $destBP)) {
     Write-Host "A project folder with this name already exists. Aborting." -ForegroundColor Red
+    exit
+}
+
+# Confirm
+$modeLabel = if ($fullCopy) { "full template (all folders)" } else { "minimal template (manifest, scripts, pack_icon only)" }
+
+Write-Host ""
+Write-Host "This will create project '$projectName' using the $modeLabel." -ForegroundColor Yellow
+Write-Host "  RP: $destRP" -ForegroundColor Yellow
+Write-Host "  BP: $destBP" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Press Enter to continue, or type 'n' to cancel." -ForegroundColor Cyan
+$confirm = Read-Host
+
+if ($confirm -eq "n") {
+    Write-Host "Project creation canceled." -ForegroundColor Red
     exit
 }
 
