@@ -1,0 +1,7 @@
+{
+	"texture_data": {
+		"{{ITEM_SHORT_NAME}}": {
+			"textures": "textures/items/{{ITEM_SHORT_NAME}}.png"
+		}
+	}
+}

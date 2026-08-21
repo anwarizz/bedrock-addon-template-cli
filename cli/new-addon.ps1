@@ -218,8 +218,21 @@ if ($Command -eq "entity") {
     exit
 }
 
-# ---- Subcommand: cadon item ----
+# ---- Subcommand: cadon item [chestplate|helmet|leggings|boots] ----
 if ($Command -eq "item") {
+    $ARMOR_TYPES = @("chestplate", "helmet", "leggings", "boots")
+    $armorType = $null
+
+    if (-not [string]::IsNullOrWhiteSpace($Extra)) {
+        if ($ARMOR_TYPES -contains $Extra) {
+            $armorType = $Extra
+        } else {
+            Write-Host "Unknown item type: $Extra" -ForegroundColor Red
+            Write-Host "Valid types: chestplate, helmet, leggings, boots (or leave empty for a plain item)" -ForegroundColor Yellow
+            exit
+        }
+    }
+
     $currentDir = (Get-Location).Path
     $manifestPath = Join-Path $currentDir "manifest.json"
 
@@ -266,13 +279,14 @@ if ($Command -eq "item") {
 
     Write-Host "Project detected: $baseName" -ForegroundColor Green
 
-    $displayName = Read-Host "Enter display name (e.g. Cool Ore)"
+    $itemLabel = if ($armorType) { $armorType } else { "item" }
+    $displayName = Read-Host "Enter display name (e.g. Magic Wand)"
     if ([string]::IsNullOrWhiteSpace($displayName)) {
         Write-Host "Display name cannot be empty." -ForegroundColor Red
         exit
     }
 
-    $identifier = Read-Host "Enter identifier (e.g. myaddon:cool_ore)"
+    $identifier = Read-Host "Enter identifier (e.g. myaddon:magic_wand)"
     if ($identifier -notmatch "^[a-z0-9_]+:[a-z0-9_]+$") {
         Write-Host "Identifier must be in the format namespace:name (lowercase letters, numbers, underscores only)." -ForegroundColor Red
         exit
@@ -280,7 +294,8 @@ if ($Command -eq "item") {
 
     $itemShortName = $identifier.Split(":")[1]
 
-    $assetsDir = Join-Path $templateRoot "assets\items"
+    $assetsSubfolder = if ($armorType) { $armorType } else { "items" }
+    $assetsDir = Join-Path $templateRoot "assets\$assetsSubfolder"
     if (-not (Test-Path $assetsDir)) {
         Write-Host "Assets folder not found: $assetsDir" -ForegroundColor Red
         exit
@@ -293,7 +308,7 @@ if ($Command -eq "item") {
         return $text
     }
 
-    Write-Host "Creating item files..." -ForegroundColor Cyan
+    Write-Host "Creating $itemLabel files..." -ForegroundColor Cyan
 
     # ---- cadon.item.json -> BP/items/<name>.json ----
     $bpItemsDir = Join-Path $bpPath "items"
@@ -302,10 +317,38 @@ if ($Command -eq "item") {
     $itemJsonContent = Replace-ItemPlaceholders $itemJsonContent
     Set-Content -Path (Join-Path $bpItemsDir "$itemShortName.json") -Value $itemJsonContent -NoNewline
 
-    # ---- cadon.png -> RP/textures/items/<name>.png ----
+    # ---- Icon texture: RP/textures/items ----
     $rpItemTexturesDir = Join-Path $rpPath "textures\items"
     New-Item -ItemType Directory -Force -Path $rpItemTexturesDir | Out-Null
-    Copy-Item -Path (Join-Path $assetsDir "cadon.png") -Destination (Join-Path $rpItemTexturesDir "$itemShortName.png")
+
+    if ($armorType) {
+        # armor pakai cadon_icon.png sebagai sumber icon
+        Copy-Item -Path (Join-Path $assetsDir "cadon_icon.png") -Destination (Join-Path $rpItemTexturesDir "$itemShortName.png")
+    } else {
+        Copy-Item -Path (Join-Path $assetsDir "cadon.png") -Destination (Join-Path $rpItemTexturesDir "$itemShortName.png")
+    }
+
+    # ---- Attachable-only files (chestplate/helmet/leggings/boots) ----
+    if ($armorType) {
+        # cadon.attachable.json -> RP/attachables
+        $rpAttachablesDir = Join-Path $rpPath "attachables"
+        New-Item -ItemType Directory -Force -Path $rpAttachablesDir | Out-Null
+        $attachableContent = Get-Content -Path (Join-Path $assetsDir "cadon.attachable.json") -Raw
+        $attachableContent = Replace-ItemPlaceholders $attachableContent
+        Set-Content -Path (Join-Path $rpAttachablesDir "$itemShortName.json") -Value $attachableContent -NoNewline
+
+        # cadon.geo.json -> RP/models/entity/attachable
+        $rpAttachableGeoDir = Join-Path $rpPath "models\entity\attachable"
+        New-Item -ItemType Directory -Force -Path $rpAttachableGeoDir | Out-Null
+        $geoContent = Get-Content -Path (Join-Path $assetsDir "cadon.geo.json") -Raw
+        $geoContent = Replace-ItemPlaceholders $geoContent
+        Set-Content -Path (Join-Path $rpAttachableGeoDir "$itemShortName.geo.json") -Value $geoContent -NoNewline
+
+        # cadon.png -> RP/textures/entity/attachable (worn/equipped texture)
+        $rpAttachableTexturesDir = Join-Path $rpPath "textures\entity\attachable"
+        New-Item -ItemType Directory -Force -Path $rpAttachableTexturesDir | Out-Null
+        Copy-Item -Path (Join-Path $assetsDir "cadon.png") -Destination (Join-Path $rpAttachableTexturesDir "$itemShortName.png")
+    }
 
     # ---- en_US.lang: create if missing, merge (no overwrite) if it exists ----
     $rpTextsDir = Join-Path $rpPath "texts"
@@ -340,6 +383,7 @@ if ($Command -eq "item") {
     $rpTexturesRootDir = Join-Path $rpPath "textures"
     New-Item -ItemType Directory -Force -Path $rpTexturesRootDir | Out-Null
     $destTexture = Join-Path $rpTexturesRootDir "item_texture.json"
+
     $sourceTextureContent = Get-Content -Path (Join-Path $assetsDir "item_texture.json") -Raw
     $sourceTextureContent = Replace-ItemPlaceholders $sourceTextureContent
     $sourceTextureObj = $sourceTextureContent | ConvertFrom-Json
@@ -371,8 +415,13 @@ if ($Command -eq "item") {
     }
 
     Write-Host ""
-    Write-Host "Item '$displayName' ($identifier) added to project '$baseName'." -ForegroundColor Green
+    Write-Host "$itemLabel '$displayName' ($identifier) added to project '$baseName'." -ForegroundColor Green
     Write-Host "  $bpItemsDir\$itemShortName.json"
+    if ($armorType) {
+        Write-Host "  $rpAttachablesDir\$itemShortName.json"
+        Write-Host "  $rpAttachableGeoDir\$itemShortName.geo.json"
+        Write-Host "  $rpAttachableTexturesDir\$itemShortName.png"
+    }
     Write-Host "  $rpItemTexturesDir\$itemShortName.png"
     Write-Host "  $destLang (merged)"
     Write-Host "  $destTexture (merged)"
